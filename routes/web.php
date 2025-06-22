@@ -38,6 +38,9 @@ Route::controller(PrivateChatController::class)->group(function () {
     Route::middleware(ApiAuthMiddleware::class)->group(function () {
         Route::get("/chat/private/data", "getChatsData")->name("chat.private.data");
         Route::post("/chat/private/create", "createChat")->name("chat.private.create");
+        Route::post("/chat/private/messages", "getChatMessages")->name("chat.private.messages");
+        Route::post("/chat/private/addUser", "addChatUser")->name("chat.private.addUser");
+        Route::post("/chat/private/deleteUser", "deleteChatUser")->name("chat.private.deleteUser");
         Route::get("/chat/private/test", "test")->name("chat.private.test");
     });
 });

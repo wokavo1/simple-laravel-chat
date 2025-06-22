@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Chat\ChatMessages;
 use App\Models\Chat\Chats;
 use App\Models\Chat\ChatUsers;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 class PrivateChatController extends Controller {
     public function index(Request $request) {
@@ -30,9 +32,13 @@ class PrivateChatController extends Controller {
 
         $user = Auth::user();
 
-        $chats = Chats::whereHas("users", function (Builder $query) use ($user) {
-            $query->where('user_id', $user->id);
-        })->offset($offset)->limit($limit)->get();
+        $chats = Chats::with("users")
+            ->whereHas("users", function (Builder $query) use ($user) {
+                $query->where('user_id', $user->id);
+            })
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
 
         return response(
             [
@@ -64,6 +70,10 @@ class PrivateChatController extends Controller {
         $chatUser->user_id = $user->id;
         $chatUser->save();
 
+        $chat->users = [
+            User::find($user->id),
+        ];
+
         return response(
             [
                 "chat" => $chat,
@@ -75,28 +85,26 @@ class PrivateChatController extends Controller {
         $user = Auth::user();
 
         $validation = $request->validate([
-            "chat_id" => "id|required",
+            "chat_id" => "required|exists:App\Models\Chat\Chats,id",
             "page" => "integer",
         ]);
 
-        // check user chat access
-        $chatUser = ChatUsers::where([
-            "chat_id" => $validation["chat_id"],
-            "user_id" => $user->id,
-        ]);
+        // get chat with checking user access to chat
+        $chat = Chats::with("users")
+            ->whereHas("users", function (Builder $query) use ($user) {
+                $query->where('user_id', $user->id);
+            })
+            ->find($validation["chat_id"]);
 
-        if (empty($chatUser)) {
+        if (!$chat) {
             return response(
                 [
                     "error" => [
-                        "message" => "Chat for user not found"
+                        "message" => "Chat not found",
                     ],
                 ],
-                400,
             );
         }
-
-        $chat = Chats::find($chatUser->chat_id)->with("users");
 
         // get messages
         $page = $validation["page"];
@@ -107,7 +115,7 @@ class PrivateChatController extends Controller {
         $limit = self::$pageElementsCount;
 
         $messages = ChatMessages::where([
-            "chat_id" => $chatUser->chat_id,
+            "chat_id" => $validation["chat_id"],
             "user_id" => $user->id,
         ])
             ->orderBy("created_at", "desc")
@@ -121,6 +129,124 @@ class PrivateChatController extends Controller {
             [
                 "messages" => $messages,
                 "users" => $users,
+            ]
+        );
+    }
+
+    public function addChatUser(Request $request) {
+        $user = Auth::user();
+
+        $validation = $request->validate([
+            "chat_id" => "required|exists:App\Models\Chat\Chats,id",
+            "name" => "required|exists:App\Models\User,name",
+        ]);
+
+        // get chat with checking user access to chat
+        $chat = Chats::with("users")
+            ->whereHas("users", function (Builder $query) use ($user) {
+                $query->where('user_id', $user->id);
+            })
+            ->find($validation["chat_id"]);
+
+        if (!$chat) {
+            return response(
+                [
+                    "error" => [
+                        "message" => "Chat not found",
+                    ],
+                ],
+            );
+        }
+
+        $userToAdd = User::where("name", $validation["name"])->first();
+        // check if user already added
+        $chatUserToAdd = ChatUsers::where([
+            "chat_id" => $chat->id,
+            "user_id" => $userToAdd->id,
+        ])
+            ->first();
+
+        if ($chatUserToAdd) {
+            return response(
+                [
+                    "error" => [
+                        "message" => "User already in chat",
+                    ],
+                ],
+            );
+        }
+
+        $chatUserToAdd = new ChatUsers();
+        $chatUserToAdd->chat_id = $chat->id;
+        $chatUserToAdd->user_id = $userToAdd->id;
+        $chatUserToAdd->save();
+
+        $chat->users[] = $userToAdd;
+
+        return response(
+            [
+                "chat" => $chat,
+                "user" => $userToAdd,
+            ]
+        );
+    }
+
+    public function deleteChatUser(Request $request) {
+        $user = Auth::user();
+
+        $validation = $request->validate([
+            "chat_id" => "required|exists:App\Models\Chat\Chats,id",
+            "user_id" => "required|exists:App\Models\User,id",
+        ]);
+
+        // get chat with checking user access to chat
+        $chat = Chats::with("users")
+            ->whereHas("users", function (Builder $query) use ($user) {
+                $query->where('user_id', $user->id);
+            })
+            ->find($validation["chat_id"]);
+
+        if (!$chat) {
+            return response(
+                [
+                    "error" => [
+                        "message" => "Chat not found",
+                    ],
+                ],
+            );
+        }
+
+        $userToDelete = User::find($validation["user_id"]);
+        // check if user already added
+        $chatUserToDelete = ChatUsers::where([
+            "chat_id" => $chat->id,
+            "user_id" => $userToDelete->id,
+        ])
+            ->first();
+
+        if (!$chatUserToDelete) {
+            return response(
+                [
+                    "error" => [
+                        "message" => "User not present in chat",
+                    ],
+                ],
+            );
+        }
+
+        $chatUserToDelete->delete();
+
+        foreach ($chat->users as $key => $_user) {
+            if ($_user->id == $chatUserToDelete->id) {
+                unset($chat->users[$key]);
+                break;
+            }
+        }
+
+        return response(
+            [
+                "chat" => $chat,
+                "user" => $userToDelete,
             ]
         );
     }

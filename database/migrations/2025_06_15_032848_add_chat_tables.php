@@ -17,9 +17,16 @@ return new class extends Migration {
         });
 
         Schema::create('chat_users', function (Blueprint $table) {
+            /*
+            id column is required due to: https://laravel.com/docs/12.x/eloquent#composite-primary-keys
+            "Eloquent requires each model to have at least one uniquely identifying "ID" that can serve as its primary key. "Composite" primary keys are not supported by Eloquent models."
+            *it would not be required if we used it only as many-to-many relationship resolve without model, but...
+            */
+            $table->id()->primary();;
             $table->foreignId('chat_id');
             $table->foreignId('user_id');
-            $table->primary(['user_id', 'chat_id']);
+            // $table->primary(['user_id', 'chat_id']);
+            $table->unique(['user_id', 'chat_id']);
 
             $table->foreign(['user_id'], 'chat_users_to_user')
                 ->references('id')
